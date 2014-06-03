@@ -1,9 +1,9 @@
-(defpackage :simple-sdl
+(defpackage :ant-sim
   (:use :common-lisp
 	:lispbuilder-sdl)
-  (:export :main-screen))
+  (:export :start))
 
-(in-package :simple-sdl)
+(in-package :ant-sim)
 
 
 (defparameter *thrants* nil
@@ -17,8 +17,8 @@
 
 (defparameter *width* 600)
 (defparameter *height* 480)
-(defparameter *initial-croods* 150)
-(defparameter *initial-thrants* 15)
+(defparameter *initial-croods* 75)
+(defparameter *initial-thrants* 20)
 
 (defparameter *crood-draw-radius* 2)
 (defparameter *crood-color* sdl:*white*
@@ -38,6 +38,9 @@
   "Pheros are shown as blue")
 (defparameter *phero-use-radius* 8)
 (defparameter *phero-use-probability* 0.5)
+(defparameter *phero-emit-probability* 0.01)
+(defparameter *phero-emit-radius* 10)
+(defparameter *max-pheros-per-crood* 10)
 
 (defstruct pos
   x y)
@@ -58,7 +61,9 @@
 
 (defclass crood ()
   ((position :accessor crood-pos
-	     :initarg :pos)))
+	     :initarg :pos)
+   (num-pheros :accessor crood-num-pheros
+	       :initform 0)))
 
 (defclass phero ()
   ((position :accessor phero-pos
@@ -83,8 +88,26 @@
     (let ((newcrood (make-instance 'crood :pos (new-random-position))))
       (push newcrood *croods*))))
 
+(defun add-phero-pos-radial (centre-pos num)
+  (let* ((angle (* num (/ 360.0 *max-pheros-per-crood*)))
+	 (radius (+ *phero-emit-radius* (* num 2)))
+	 (delta-x (round (* (cos angle) radius)))
+	 (delta-y (round (* (sin angle) radius))))
+    (make-pos :x (+ (pos-x centre-pos) delta-x)
+	      :y (+ (pos-y centre-pos) delta-y))))
+
+(defun maybe-emit-phero (crood)
+  (when (and (< (random 1.0) *phero-emit-probability*)
+	     (< (crood-num-pheros crood) *max-pheros-per-crood*))
+    (push (make-instance
+	   'phero :pos (add-phero-pos-radial
+			(crood-pos crood)
+			(crood-num-pheros crood)))
+	  *pheros*)
+    (incf (crood-num-pheros crood))))
+
 (defun show-crood (crood)
-  "A small white circle"
+  "A sall white circle"
   (sdl:draw-filled-circle-* (pos-x (crood-pos crood))
 			    (pos-y (crood-pos crood))
 			    *crood-draw-radius*
@@ -214,28 +237,31 @@ a phero, take it; otherwise pick one of the valid ones at random"
 		   (pos-y (line-topos line))
 		   :color (line-col line)))
 
-;; TODO(krato): Next steps
-;; -- thrants act on croods and pheros, may also generate pheros
-
-(defun main-screen ()
+(defun start ()
   ;; Initialize structures
   (clear-lists)
   (add-random-croods)
   (add-random-thrants)
   (sdl:with-init ()
     (sdl:window *width* *height*
-		:title-caption "Simple SDL"
-		:icon-caption "Simple SDL")
+		:title-caption "Ant Sim"
+		:icon-caption "Ant Sim")
     (sdl:with-events ()
       (:quit-event () t)
       (:video-expose-event () (sdl:update-display))
       (:key-down-event (:key key)
 		       (when (sdl:key= key :sdl-key-escape)
 			 (sdl:push-quit-event)))
+        (:mouse-button-down-event (:x x :y y)
+				  (let ((newcrood
+					 (make-instance 'crood
+							:pos (make-pos :x x :y y))))
+				    (push newcrood *croods*)))
       (:idle ()
 	     (progn
 	       (sdl:clear-display sdl:*black*)
 	       (dolist (crood *croods*)
+		 (maybe-emit-phero crood)
 		 (show-crood crood))
 	       (dolist (line *lines*)
 		 (show-line line))
@@ -246,6 +272,6 @@ a phero, take it; otherwise pick one of the valid ones at random"
 		 (eat-crood thrant))
 	       (dolist (phero *pheros*)
 		 (show-phero phero))
-	       (sleep 0.1) ;; TODO(krato): come up with something better!
+	       (sleep 0.01) ;; TODO(krato): come up with something better!
 	       (sdl:update-display))))))
 
