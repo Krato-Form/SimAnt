@@ -1,5 +1,6 @@
 (defpackage :ant-sim
   (:use :common-lisp
+	:cl-log
 	:lispbuilder-sdl)
   (:export :start))
 
@@ -15,10 +16,10 @@
 (defparameter *pheros* nil
   "pheros either emitted by croods or dropped by thrants")
 
-(defparameter *width* 600)
-(defparameter *height* 480)
-(defparameter *initial-croods* 75)
-(defparameter *initial-thrants* 20)
+(defparameter *width* 800)
+(defparameter *height* 600)
+(defparameter *initial-croods* 10)
+(defparameter *initial-thrants* 1)
 
 (defparameter *crood-draw-radius* 2)
 (defparameter *crood-color* sdl:*white*
@@ -41,6 +42,12 @@
 (defparameter *phero-emit-probability* 0.01)
 (defparameter *phero-emit-radius* 10)
 (defparameter *max-pheros-per-crood* 10)
+
+(defcategory :info)
+(defcategory :debug)
+(defun log-cat (cat formatstr &rest args)
+  (let ((message (apply #'format nil formatstr args)))
+    (log-message cat message)))
 
 (defstruct pos
   x y)
@@ -120,9 +127,9 @@
 				    :col sdl:*red*
 				    :energy *thrant-starting-energy*
 				    :inventory nil)))
-      (format t "Created thrant at (~a, ~a)~%"
-	      (pos-x (thrant-pos newthrant))
-	      (pos-y (thrant-pos newthrant)))
+      (log-cat :debug "Created thrant at (~a, ~a)~%"
+	   (pos-x (thrant-pos newthrant))
+	   (pos-y (thrant-pos newthrant)))
       (push newthrant *thrants*))))
 
 ;; TODO(krato): Find a way to represent energy
@@ -179,14 +186,14 @@ a phero, take it; otherwise pick one of the valid ones at random"
 		 (< (third close-phero) *phero-use-radius*)
 		 (< (random 1.0) *phero-use-probability*))
 	    (progn
-	      (format t "Decided to follow a phero ...")
+	      (log-message :debug "Decided to follow a phero ...")
 	      (delete (second close-phero) *pheros*)
 	      (first close-phero))
 	    (nth (random (length valid-options)) valid-options))))))
 
 (defun maybe-drop-phero (pos)
   (if (< (random 1.0) *phero-drop-probability*)
-      (format t "Decided to create a phero at ~a~%" pos)
+      (log-message :debug "Decided to create a phero at ~a~%" pos)
       (push (make-instance 'phero :pos pos) *pheros*)))
 
 (defun move-thrant (thrant)
@@ -197,7 +204,7 @@ a phero, take it; otherwise pick one of the valid ones at random"
 	 (old-pos (thrant-pos thrant))
 	 (new-pos (choose-new-pos old-pos move-size)))
     (when (> energy-change 0)
-      (format t "Thrant moved from ~a to ~a, it's energy is now ~a ~%"
+      (log-message :debug "Thrant moved from ~a to ~a, it's energy is now ~a ~%"
 	      old-pos new-pos (- (thrant-energy thrant) energy-change))
       (push (make-line :frompos old-pos :topos new-pos :col (thrant-col thrant))
 	    *lines*)
@@ -218,11 +225,11 @@ a phero, take it; otherwise pick one of the valid ones at random"
 				 *croods*))
 	 (nearest-crood (car (sort crood-distances #'< :key #'cdr))))
     (when (< (cdr nearest-crood) *crood-eat-distance*)
-      (format t "Eating crood at ~a~%" (crood-pos (car nearest-crood)))
+      (log-message :info "Eating crood at ~a~%" (crood-pos (car nearest-crood)))
       (delete (car nearest-crood) *croods*)
-      (format t "Number of croods left = ~a~%" (length *croods*))
+      (log-message :debug "Number of croods left = ~a~%" (length *croods*))
       (incf (thrant-energy thrant) *crood-energy*)
-      (format t "Thrant energy is now ~a!~%" (thrant-energy thrant)))))
+      (log-message :debug "Thrant energy is now ~a!~%" (thrant-energy thrant)))))
 
 (defun show-phero (phero)
   (sdl:draw-filled-circle-* (pos-x (phero-pos phero))
@@ -238,6 +245,11 @@ a phero, take it; otherwise pick one of the valid ones at random"
 		   :color (line-col line)))
 
 (defun start ()
+  ;; Setup logging
+  (log-manager)
+  (start-messenger 'text-stream-messenger
+		   :filter :info
+		   :stream *standard-output*)
   ;; Initialize structures
   (clear-lists)
   (add-random-croods)
@@ -252,7 +264,7 @@ a phero, take it; otherwise pick one of the valid ones at random"
       (:key-down-event (:key key)
 		       (when (sdl:key= key :sdl-key-escape)
 			 (sdl:push-quit-event)))
-        (:mouse-button-down-event (:x x :y y)
+        (:mouse-button-down-event (:button button :x x :y y)
 				  (let ((newcrood
 					 (make-instance 'crood
 							:pos (make-pos :x x :y y))))
